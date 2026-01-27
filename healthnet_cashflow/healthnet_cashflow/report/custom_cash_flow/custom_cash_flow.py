@@ -131,6 +131,11 @@ def execute(filters=None):
 
             elif row["label"] == _("Interest Paid"):
                 row_data = get_interest_expense_from_pl(period_list, filters)
+                
+            # ---------------- STATIC ZERO ----------------
+            elif row["label"] == _("Borrowings/Equity Movements"):
+                row_data = {p["key"]: 0 for p in period_list}
+                row_data["total"] = 0    
 
             # ---------------- WORKING CAPITAL ----------------
             elif row["label"] == _("Change in Trade Receivables"):
