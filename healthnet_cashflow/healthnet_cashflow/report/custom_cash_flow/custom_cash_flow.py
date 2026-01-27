@@ -76,14 +76,22 @@ def execute(filters=None):
 
     for cash_flow_section in cash_flow_sections:
         section_data = []
-        data.append(
-            {
-                "section_name": "'" + cash_flow_section["section_header"] + "'",
-                "parent_section": None,
-                "indent": 0.0,
-                "section": cash_flow_section["section_header"],
-            }
-        )
+        header_row = {
+            "section_name": "'" + cash_flow_section["section_header"] + "'",
+            "parent_section": None,
+            "indent": 0,
+            "section": cash_flow_section["section_header"],
+            "currency": None,
+        }
+
+        # Remove numeric values for all periods
+        for period in period_list:
+            header_row[period["key"]] = None
+
+        header_row["total"] = None
+
+        data.append(header_row)
+
 
         if len(data) == 1:
             # add first net income in operations section
@@ -102,39 +110,53 @@ def execute(filters=None):
                 section_data.append(net_profit_loss)
 
         for row in cash_flow_section["account_types"]:
-            if row["label"] == _("Interest Expense"):
+            # ---------------- PPE MOVEMENTS (TB BASED) ----------------
+            if row["label"] == _("Purchase of PPE"):
+                row_data = get_ppe_movement_from_tb(
+                    period_list,
+                    filters,
+                    movement_type="purchase"
+                )
+
+            elif row["label"] == _("Proceeds from Asset Disposal"):
+                row_data = get_ppe_movement_from_tb(
+                    period_list,
+                    filters,
+                    movement_type="disposal"
+                )
+
+            # ---------------- INTEREST ----------------
+            elif row["label"] == _("Interest Expense"):
                 row_data = get_interest_expense_from_pl(period_list, filters)
-                
+
             elif row["label"] == _("Interest Paid"):
-                row_data = get_interest_expense_from_pl(period_list, filters)    
-                
+                row_data = get_interest_expense_from_pl(period_list, filters)
+
+            # ---------------- WORKING CAPITAL ----------------
+            elif row["label"] == _("Change in Trade Receivables"):
+                row_data = get_working_capital_change_from_tb(
+                    "Accounts Receivable", period_list, filters
+                )
+
+            elif row["label"] == _("Change in Inventory"):
+                row_data = get_working_capital_change_from_tb(
+                    "INVENTORY", period_list, filters
+                )
+
+            elif row["label"] == _("Change in Trade Payables"):
+                row_data = get_working_capital_change_from_tb(
+                    "Accounts Payable", period_list, filters
+                )
+
+            # ---------------- DEFAULT (ACCOUNT TYPE BASED) ----------------
             else:
-                if row["label"] == _("Change in Trade Receivables"):
-                    row_data = get_working_capital_change_from_tb(
-                        "Accounts Receivable", period_list, filters
-                    )
-
-                elif row["label"] == _("Change in Inventory"):
-                    row_data = get_working_capital_change_from_tb(
-                        "INVENTORY", period_list, filters
-                    )
-
-                elif row["label"] == _("Change in Trade Payables"):
-                    row_data = get_working_capital_change_from_tb(
-                        "Accounts Payable", period_list, filters
-                    )
-
-                elif row["label"] == _("Interest Expense"):
-                    row_data = get_interest_expense_from_pl(period_list, filters)
-
-                else:
-                    row_data = get_account_type_based_data(
-                        filters.company,
-                        row["account_type"],
-                        period_list,
-                        filters.accumulated_values,
-                        filters
-                    )
+                row_data = get_account_type_based_data(
+                    filters.company,
+                    row["account_type"],
+                    period_list,
+                    filters.accumulated_values,
+                    filters
+                )
 
 
             accounts = frappe.get_all(
@@ -685,16 +707,16 @@ def get_working_capital_change_from_tb(account_name, period_list, filters):
         closing = 0
 
         # ASSETS → debit
-        if account_name in ["Accounts Receivable", "INVENTORY", "Accounts Payable"]:
+        if account_name in ["Accounts Receivable", "INVENTORY"]:
             opening = row.get("opening_debit", 0)
             closing = row.get("closing_debit", 0)
             value = opening - closing
 
         # # LIABILITIES → credit
-        # elif account_name == "Accounts Payable":
-        #     opening = row.get("opening_credit", 0)
-        #     closing = row.get("closing_credit", 0)
-        #     value = closing - opening
+        elif account_name == "Accounts Payable":
+            opening = row.get("opening_credit", 0)
+            closing = row.get("closing_credit", 0)
+            value = opening - closing
 
         for period in period_list:
             key = period["key"]
@@ -810,3 +832,68 @@ def get_cash_and_bank_balance(period_list, filters, balance_type):
     data["total"] = total
     return data
 
+
+def get_ppe_movement_from_tb(period_list, filters, movement_type):
+    """
+    movement_type:
+        - 'purchase'  → debit based
+        - 'disposal'  → credit based
+    """
+
+    tb_filters = {
+        "company": filters.company,
+        "from_date": filters.period_start_date,
+        "to_date": filters.period_end_date,
+        "fiscal_year": filters.from_fiscal_year,
+        "cost_center": filters.cost_center or [],
+        "project": filters.project or [],
+        "include_default_book_entries": 1,
+        "show_net_values": 0,
+        "with_period_closing_entry_for_opening": 1,
+        "with_period_closing_entry_for_current_period": 1,
+    }
+
+    tb_filters.update({
+        "filter_based_on": filters.filter_based_on,
+        "from_fiscal_year": filters.from_fiscal_year,
+        "to_fiscal_year": filters.to_fiscal_year,
+        "period_start_date": filters.period_start_date,
+        "period_end_date": filters.period_end_date,
+    })
+
+    tb_result = get_trial_balance_report(tb_filters)
+    rows = tb_result.get("result", [])
+
+    data = {p["key"]: 0 for p in period_list}
+    total = 0
+
+    ppe_row = None
+    dep_row = None
+
+    for row in rows:
+        if row.get("account_name") == "PROPERTY, PLANT & EQUIPMENT AIRPORT":
+            ppe_row = row
+        elif row.get("account_name") == "ACCUMULATED DEPRECIATION":
+            dep_row = row
+
+    if not ppe_row:
+        return {"total": 0, **data}
+
+    for period in period_list:
+        key = period["key"]
+
+        if movement_type == "purchase":
+            ppe_value = ppe_row.get("debit", 0)
+            dep_value = dep_row.get("debit", 0) if dep_row else 0
+            value = ppe_value - dep_value
+
+        else:  # disposal
+            ppe_value = ppe_row.get("credit", 0)
+            dep_value = dep_row.get("credit", 0) if dep_row else 0
+            value = ppe_value - dep_value
+
+        data[key] = value
+        total += value
+
+    data["total"] = total
+    return data
