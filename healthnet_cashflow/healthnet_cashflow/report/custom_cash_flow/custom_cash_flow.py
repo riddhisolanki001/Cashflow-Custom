@@ -306,14 +306,29 @@ def execute(filters=None):
     # --------------------------------
     # Closing Cash and Bank Balance
     # --------------------------------
-    closing_row = get_cash_and_bank_balance(period_list, filters, "closing")
-    closing_row.update({
-        "section_name": "'Closing Cash and Bank Balance'",
-        "section": "'Closing Cash and Bank Balance'",
-        "currency": company_currency,
-    })
+    closing_row = {
+    "section_name": "'Closing Cash and Bank Balance'",
+    "section": "'Closing Cash and Bank Balance'",
+    "currency": company_currency,
+    }
+
+    total = 0
+
+    for period in period_list:
+        key = period["key"]
+
+        opening = opening_row.get(key, 0)
+        net_change = net_cash_row.get(key, 0)
+
+        value = opening + net_change
+        closing_row[key] = value
+        total += value
+
+    closing_row["total"] = total
+
     data.append(closing_row)
     data.append({})
+
     
     columns = get_columns(
         filters.periodicity,
@@ -721,7 +736,7 @@ def get_working_capital_change_from_tb(account_name, period_list, filters):
         elif account_name == "Accounts Payable":
             opening = row.get("opening_credit", 0)
             closing = row.get("closing_credit", 0)
-            value = opening - closing
+            value = (opening - closing) * -1
 
         for period in period_list:
             key = period["key"]
@@ -890,7 +905,7 @@ def get_ppe_movement_from_tb(period_list, filters, movement_type):
         if movement_type == "purchase":
             ppe_value = ppe_row.get("debit", 0)
             dep_value = dep_row.get("debit", 0) if dep_row else 0
-            value = ppe_value - dep_value
+            value = -abs(ppe_value - dep_value)
 
         else:  # disposal
             ppe_value = ppe_row.get("credit", 0)
