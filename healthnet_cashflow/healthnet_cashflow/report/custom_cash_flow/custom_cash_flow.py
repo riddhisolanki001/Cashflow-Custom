@@ -26,6 +26,87 @@ from healthnet_cashflow.api.profit_and_loss_report import get_profit_and_loss_re
 from healthnet_cashflow.api.trial_balance_report import get_trial_balance_report
 
 
+def get_balance_sheet_total_by_label(label, filters):
+    from erpnext.accounts.report.balance_sheet import balance_sheet
+    import frappe
+
+    bs_filters = frappe._dict({
+        "company": filters.company,
+        "from_fiscal_year": filters.from_fiscal_year,
+        "to_fiscal_year": filters.to_fiscal_year,
+        "periodicity": filters.periodicity or "Yearly",
+        "filter_based_on": filters.filter_based_on or "Fiscal Year",
+        "period_start_date": filters.period_start_date,
+        "period_end_date": filters.period_end_date,
+        "accumulated_values": True,
+    })
+
+    result = balance_sheet.execute(bs_filters)
+    rows = result[1] or []
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        account_name = row.get("account_name") or ""
+
+        # flexible match
+        if label in account_name:
+            return row.get("total") or 0
+
+    return 0
+
+
+def build_cashflow_single_value_row(
+    label,
+    value,
+    period_list,
+    parent_section,
+    currency,
+    indent=1,
+    include_in_op_total=True,
+    include_in_net_cash=False,
+):
+    row = {
+        "section_name": _(label),
+        "section": _(label),
+        "indent": indent,
+        "parent_section": parent_section,
+        "currency": currency,
+        "include_in_op_total": include_in_op_total,
+        "include_in_net_cash": include_in_net_cash,
+        "total": value,
+    }
+
+    for period in period_list:
+        row[period["key"]] = value
+
+    return row
+
+
+
+# ----------------------------
+# Safe get_difference function
+# ----------------------------
+def get_difference(label, filters_closing):
+    closing = get_balance_sheet_total_by_label(label, filters_closing)
+
+    # Previous year filters
+    filters_opening = frappe._dict(filters_closing)
+    filters_opening.from_fiscal_year = str(int(filters_closing.from_fiscal_year) - 1)
+    filters_opening.to_fiscal_year = str(int(filters_closing.to_fiscal_year) - 1)
+
+    opening = get_balance_sheet_total_by_label(label, filters_opening)
+
+    # Treat missing values as 0
+    if opening is None:
+        return closing
+    if closing is None:
+        closing = 0
+
+    return closing - opening
+
+
 def execute(filters=None):
     if not filters:
         frappe.throw(_("Filters are required"))
@@ -92,7 +173,6 @@ def execute(filters=None):
 
         data.append(header_row)
 
-
         if len(data) == 1:
             # add first net income in operations section
             if net_profit_loss:
@@ -153,6 +233,73 @@ def execute(filters=None):
                     "Accounts Payable", period_list, filters
                 )
 
+            elif row["label"] == _("Loans and Advances (Assets)"):
+                loans_total = get_balance_sheet_total_by_label("Loans and Advances (Assets)", filters) or 0
+                row_data = build_cashflow_single_value_row(
+                    label="Loans and Advances (Assets)",
+                    value=loans_total,
+                    period_list=period_list,
+                    parent_section=cash_flow_sections[0]["section_header"],
+                    currency=company_currency,
+                    indent=1
+                )
+
+            elif row["label"] == _("Prepayment"):
+                prepayment_total = get_balance_sheet_total_by_label("PREPAYMENT", filters) or 0
+                row_data = build_cashflow_single_value_row(
+                    label="Prepayment",
+                    value=prepayment_total,
+                    period_list=period_list,
+                    parent_section=cash_flow_sections[0]["section_header"],
+                    currency=company_currency,
+                    indent=1
+                )
+
+            elif row["label"] == _("Tax Assets"):
+                tax_assets_total = get_balance_sheet_total_by_label("Tax Assets", filters) or 0
+                row_data = build_cashflow_single_value_row(
+                    label="Tax Assets",
+                    value=tax_assets_total,
+                    period_list=period_list,
+                    parent_section=cash_flow_sections[0]["section_header"],
+                    currency=company_currency,
+                    indent=1
+                )
+
+            elif row["label"] == _("Investment"):
+                investment_total = get_balance_sheet_total_by_label("Investment", filters) or 0
+                row_data = build_cashflow_single_value_row(
+                    label="Investment",
+                    value=investment_total,
+                    period_list=period_list,
+                    parent_section=cash_flow_sections[0]["section_header"],
+                    currency=company_currency,
+                    indent=1
+                )
+
+            elif row["label"] == _("Withholding Tax 3%"):
+                tax3_total = get_difference("WITHHOLDING TAX 3%", filters)
+                row_data = build_cashflow_single_value_row(
+                    label="Withholding Tax 3%",
+                    value=tax3_total or 0,
+                    period_list=period_list,
+                    parent_section=cash_flow_sections[0]["section_header"],
+                    currency=company_currency,
+                    indent=1
+                )
+
+            elif row["label"] == _("Withholding Tax 7.5%"):
+                tax7_total = get_difference("WITHHOLDING TAX 7.5%", filters)
+                row_data = build_cashflow_single_value_row(
+                    label="Withholding Tax 7.5%",
+                    value=tax7_total or 0,
+                    period_list=period_list,
+                    parent_section=cash_flow_sections[0]["section_header"],
+                    currency=company_currency,
+                    indent=1
+                )
+
+
             # ---------------- DEFAULT (ACCOUNT TYPE BASED) ----------------
             else:
                 row_data = get_account_type_based_data(
@@ -184,8 +331,14 @@ def execute(filters=None):
                         _("Change in Trade Receivables"),
                         _("Change in Inventory"),
                         _("Change in Trade Payables"),
+                        _("Loans and Advances (Assets)"),
+                        _("Prepayment"),
+                        _("Tax Assets"),
+                        _("Investment"),
+                        _("Withholding Tax 3%"),
+                        _("Withholding Tax 7.5%")
                     ),
-                     "include_in_net_cash": row["label"] in (
+                    "include_in_net_cash": row["label"] in (
                         _("Interest Paid"),
                         _("Borrowings/Equity Movements"),
                     ),
@@ -353,10 +506,17 @@ def get_cash_flow_accounts():
         "account_types": [
             {"account_type": "Depreciation", "label": _("Depreciation & Amortisation")},
             {"account_type": "Depreciation", "label": _("Interest Expense")},
-               # {"account_type": "Depreciation", "label": _("Operating Profit before Working Capital Changes")},
+            # {"account_type": "Depreciation", "label": _("Operating Profit before Working Capital Changes")},
             {"account_type": "Receivable", "label": _("Change in Trade Receivables")},
             {"account_type": "Stock", "label": _("Change in Inventory")},
             {"account_type": "Payable", "label": _("Change in Trade Payables")},
+
+            {"account_type": "Other", "label": _("Loans and Advances (Assets)")},
+            {"account_type": "Other", "label": _("Prepayment")},
+            {"account_type": "Other", "label": _("Tax Assets")},
+            {"account_type": "Other", "label": _("Investment")},
+            {"account_type": "Other", "label": _("Withholding Tax 3%")},
+            {"account_type": "Other", "label": _("Withholding Tax 7.5%")},
         ],
     }
 
