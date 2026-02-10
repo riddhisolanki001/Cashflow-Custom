@@ -234,7 +234,7 @@ def execute(filters=None):
                 )
 
             elif row["label"] == _("Loans and Advances (Assets)"):
-                loans_total = get_balance_sheet_total_by_label("Loans and Advances (Assets)", filters) or 0
+                loans_total = get_difference("Loans and Advances (Assets)", filters) or 0
                 row_data = build_cashflow_single_value_row(
                     label="Loans and Advances (Assets)",
                     value=loans_total,
@@ -245,7 +245,7 @@ def execute(filters=None):
                 )
 
             elif row["label"] == _("Prepayment"):
-                prepayment_total = get_balance_sheet_total_by_label("PREPAYMENT", filters) or 0
+                prepayment_total = get_difference("PREPAYMENT", filters) or 0
                 row_data = build_cashflow_single_value_row(
                     label="Prepayment",
                     value=prepayment_total,
@@ -256,7 +256,7 @@ def execute(filters=None):
                 )
 
             elif row["label"] == _("Tax Assets"):
-                tax_assets_total = get_balance_sheet_total_by_label("Tax Assets", filters) or 0
+                tax_assets_total = get_difference("Tax Assets", filters) or 0
                 row_data = build_cashflow_single_value_row(
                     label="Tax Assets",
                     value=tax_assets_total,
@@ -267,7 +267,7 @@ def execute(filters=None):
                 )
 
             elif row["label"] == _("Investment"):
-                investment_total = get_balance_sheet_total_by_label("Investment", filters) or 0
+                investment_total = get_difference("Investment", filters) or 0
                 row_data = build_cashflow_single_value_row(
                     label="Investment",
                     value=investment_total,
@@ -277,22 +277,14 @@ def execute(filters=None):
                     indent=1
                 )
 
-            elif row["label"] == _("Withholding Tax 3%"):
-                tax3_total = get_difference("WITHHOLDING TAX 3%", filters)
-                row_data = build_cashflow_single_value_row(
-                    label="Withholding Tax 3%",
-                    value=tax3_total or 0,
-                    period_list=period_list,
-                    parent_section=cash_flow_sections[0]["section_header"],
-                    currency=company_currency,
-                    indent=1
-                )
 
-            elif row["label"] == _("Withholding Tax 7.5%"):
+            elif row["label"] == _("Withholding Tax"):
+                tax3_total = get_difference("WITHHOLDING TAX 3%", filters)
                 tax7_total = get_difference("WITHHOLDING TAX 7.5%", filters)
+                total_withholding_tax = tax3_total + tax7_total
                 row_data = build_cashflow_single_value_row(
-                    label="Withholding Tax 7.5%",
-                    value=tax7_total or 0,
+                    label="Withholding Tax",
+                    value=total_withholding_tax or 0,
                     period_list=period_list,
                     parent_section=cash_flow_sections[0]["section_header"],
                     currency=company_currency,
@@ -335,8 +327,7 @@ def execute(filters=None):
                         _("Prepayment"),
                         _("Tax Assets"),
                         _("Investment"),
-                        _("Withholding Tax 3%"),
-                        _("Withholding Tax 7.5%")
+                        _("Withholding Tax")
                     ),
                     "include_in_net_cash": row["label"] in (
                         _("Interest Paid"),
@@ -515,8 +506,7 @@ def get_cash_flow_accounts():
             {"account_type": "Other", "label": _("Prepayment")},
             {"account_type": "Other", "label": _("Tax Assets")},
             {"account_type": "Other", "label": _("Investment")},
-            {"account_type": "Other", "label": _("Withholding Tax 3%")},
-            {"account_type": "Other", "label": _("Withholding Tax 7.5%")},
+            {"account_type": "Other", "label": _("Withholding Tax")},
         ],
     }
 
