@@ -93,14 +93,25 @@ def get_difference(label, filters_closing):
 
     # Previous year filters
     filters_opening = frappe._dict(filters_closing)
-    filters_opening.from_fiscal_year = str(int(filters_closing.from_fiscal_year) - 1)
-    filters_opening.to_fiscal_year = str(int(filters_closing.to_fiscal_year) - 1)
+    prev_fiscal_year = str(int(filters_closing.from_fiscal_year) - 1)
+    
+    # Check if previous fiscal year exists
+    if not frappe.db.exists("Fiscal Year", prev_fiscal_year):
+        # Previous year doesn't exist, return current year value
+        return closing if closing else 0
+    
+    filters_opening.from_fiscal_year = prev_fiscal_year
+    filters_opening.to_fiscal_year = prev_fiscal_year
 
-    opening = get_balance_sheet_total_by_label(label, filters_opening)
+    try:
+        opening = get_balance_sheet_total_by_label(label, filters_opening)
+    except Exception as e:
+        frappe.log_error(f"Error fetching opening balance for {label}: {str(e)}")
+        opening = 0
 
     # Treat missing values as 0
     if opening is None:
-        return closing
+        opening = 0
     if closing is None:
         closing = 0
 
@@ -279,12 +290,23 @@ def execute(filters=None):
 
 
             elif row["label"] == _("Withholding Tax"):
-                tax3_total = get_difference("WITHHOLDING TAX 3%", filters)
-                tax7_total = get_difference("WITHHOLDING TAX 7.5%", filters)
+                try:
+                    tax3_total = get_difference("WITHHOLDING TAX 3%", filters) or 0
+                except Exception as e:
+                    frappe.log_error(f"Error fetching WITHHOLDING TAX 3%: {str(e)}")
+                    tax3_total = 0
+                
+                try:
+                    tax7_total = get_difference("WITHHOLDING TAX 7.5%", filters) or 0
+                except Exception as e:
+                    frappe.log_error(f"Error fetching WITHHOLDING TAX 7.5%: {str(e)}")
+                    tax7_total = 0
+                
                 total_withholding_tax = tax3_total + tax7_total
+                
                 row_data = build_cashflow_single_value_row(
                     label="Withholding Tax",
-                    value=total_withholding_tax or 0,
+                    value=total_withholding_tax,
                     period_list=period_list,
                     parent_section=cash_flow_sections[0]["section_header"],
                     currency=company_currency,
@@ -327,7 +349,7 @@ def execute(filters=None):
                         _("Prepayment"),
                         _("Tax Assets"),
                         _("Investment"),
-                        _("Withholding Tax")
+                        _("Withholding Tax"),
                     ),
                     "include_in_net_cash": row["label"] in (
                         _("Interest Paid"),
