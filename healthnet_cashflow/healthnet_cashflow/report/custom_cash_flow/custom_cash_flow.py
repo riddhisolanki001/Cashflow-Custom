@@ -64,8 +64,10 @@ def get_tb_diff_by_label(label, filters):
         "fiscal_year": filters.from_fiscal_year,
         "from_date": filters.period_start_date,
         "to_date": filters.period_end_date,
-        "show_zero_values": 1,
         "show_net_values": 1,
+        "with_period_closing_entry_for_opening": 1,
+        "with_period_closing_entry_for_current_period": 1,
+        "include_default_book_entries": 1,
     })
 
     columns, rows = trial_balance.execute(tb_filters)
@@ -85,8 +87,10 @@ def get_tb_diff_by_label(label, filters):
         if label.lower() in account_label.lower():
             opening_dr = flt(row.get("opening_debit", 0))
             closing_dr = flt(row.get("closing_debit", 0))
+            opening_cr = flt(row.get("opening_credit", 0))
+            closing_cr = flt(row.get("closing_credit", 0))
 
-            difference = (closing_dr - opening_dr) * -1
+            difference = (((closing_dr - opening_dr) * -1) + (closing_cr - opening_cr))
 
             frappe.log_error(
                 title="TB LABEL MATCH FOUND",
@@ -141,8 +145,10 @@ def get_withholding_tax_total(filters):
             if label.lower() in account_label.lower():
                 opening_cr = flt(row.get("opening_credit", 0))
                 closing_cr = flt(row.get("closing_credit", 0))
+                opening_dr = flt(row.get("opening_debit", 0))
+                closing_dr = flt(row.get("closing_debit", 0))
 
-                difference = (closing_cr - opening_cr)
+                difference = (((closing_cr - opening_cr)) + (closing_dr - opening_dr) * -1)
                 total_difference += difference
                 found = True
 
