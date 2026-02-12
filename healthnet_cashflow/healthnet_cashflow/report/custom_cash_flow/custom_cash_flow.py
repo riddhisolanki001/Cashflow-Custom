@@ -26,37 +26,6 @@ from healthnet_cashflow.api.profit_and_loss_report import get_profit_and_loss_re
 from healthnet_cashflow.api.trial_balance_report import get_trial_balance_report
 
 
-def get_balance_sheet_total_by_label(label, filters):
-    from erpnext.accounts.report.balance_sheet import balance_sheet
-    import frappe
-
-    bs_filters = frappe._dict({
-        "company": filters.company,
-        "from_fiscal_year": filters.from_fiscal_year,
-        "to_fiscal_year": filters.to_fiscal_year,
-        "periodicity": filters.periodicity or "Yearly",
-        "filter_based_on": filters.filter_based_on or "Fiscal Year",
-        "period_start_date": filters.period_start_date,
-        "period_end_date": filters.period_end_date,
-        "accumulated_values": True,
-    })
-
-    result = balance_sheet.execute(bs_filters)
-    rows = result[1] or []
-
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-
-        account_name = row.get("account_name") or ""
-
-        # flexible match
-        if label in account_name:
-            return row.get("total") or 0
-
-    return 0
-
-
 def build_cashflow_single_value_row(
     label,
     value,
@@ -85,81 +54,116 @@ def build_cashflow_single_value_row(
 
 
 
-# ----------------------------
-# Safe get_difference function
-# ----------------------------
-# def get_difference(label, filters_closing):
-#     closing = get_balance_sheet_total_by_label(label, filters_closing)
+def get_tb_diff_by_label(label, filters):
+    from erpnext.accounts.report.trial_balance import trial_balance
+    from frappe.utils import flt
+    import frappe
 
-#     # Previous year filters
-#     filters_opening = frappe._dict(filters_closing)
-#     prev_fiscal_year = str(int(filters_closing.from_fiscal_year) - 1)
-    
-#     # Check if previous fiscal year exists
-#     if not frappe.db.exists("Fiscal Year", prev_fiscal_year):
-#         # Previous year doesn't exist, return current year value
-#         return closing if closing else 0
-    
-#     filters_opening.from_fiscal_year = prev_fiscal_year
-#     filters_opening.to_fiscal_year = prev_fiscal_year
+    tb_filters = frappe._dict({
+        "company": filters.company,
+        "fiscal_year": filters.from_fiscal_year,
+        "from_date": filters.period_start_date,
+        "to_date": filters.period_end_date,
+        "show_zero_values": 1,
+        "show_net_values": 1,
+    })
 
-#     try:
-#         opening = get_balance_sheet_total_by_label(label, filters_opening)
-#     except Exception as e:
-#         frappe.log_error(f"Error fetching opening balance for {label}: {str(e)}")
-#         opening = 0
+    columns, rows = trial_balance.execute(tb_filters)
 
-#     # Treat missing values as 0
-#     if opening is None:
-#         opening = 0
-#     if closing is None:
-#         closing = 0
+    frappe.log_error(
+        title="TB DEBUG ROW COUNT",
+        message=f"Rows returned: {len(rows) if rows else 0}"
+    )
 
-#     return closing - opening
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
 
+        account_label = row.get("account_name", "")
 
-def get_difference(label, filters_closing):
-    """
-    Fiscal Year  -> closing - opening (previous fiscal year)
-    Date Range   -> direct value from balance sheet
-    """
+        # LABEL MATCH (case-insensitive)
+        if label.lower() in account_label.lower():
+            opening_dr = flt(row.get("opening_debit", 0))
+            closing_dr = flt(row.get("closing_debit", 0))
 
-    # ----------------------------
-    # DATE RANGE LOGIC
-    # ----------------------------
-    if filters_closing.filter_based_on == "Date Range":
-        try:
-            value = get_balance_sheet_total_by_label(label, filters_closing)
-            return value or 0
-        except Exception as e:
+            difference = (closing_dr - opening_dr) * -1
+
             frappe.log_error(
-                f"Error fetching date-range value for {label}: {str(e)}"
+                title="TB LABEL MATCH FOUND",
+                message=f"{account_label} => Opening Dr = {opening_dr}, Closing Dr = {closing_dr}, Difference = {difference}"
             )
-            return 0
 
-    # ----------------------------
-    # FISCAL YEAR LOGIC (existing)
-    # ----------------------------
-    closing = get_balance_sheet_total_by_label(label, filters_closing) or 0
+            return difference
 
-    filters_opening = frappe._dict(filters_closing)
-    prev_fiscal_year = str(int(filters_closing.from_fiscal_year) - 1)
+    frappe.log_error(
+        title="TB LABEL NOT FOUND",
+        message=label
+    )
 
-    if not frappe.db.exists("Fiscal Year", prev_fiscal_year):
-        return closing
+    return 0
 
-    filters_opening.from_fiscal_year = prev_fiscal_year
-    filters_opening.to_fiscal_year = prev_fiscal_year
 
-    try:
-        opening = get_balance_sheet_total_by_label(label, filters_opening) or 0
-    except Exception as e:
-        frappe.log_error(
-            f"Error fetching opening balance for {label}: {str(e)}"
-        )
-        opening = 0
+def get_withholding_tax_total(filters):
+    from erpnext.accounts.report.trial_balance import trial_balance
+    from frappe.utils import flt
+    import frappe
 
-    return closing - opening
+    # Labels to match
+    labels = ["WITHHOLDING TAX 7.5%", "WITHHOLDING TAX 3%"]
+
+    tb_filters = frappe._dict({
+        "company": filters.company,
+        "fiscal_year": filters.from_fiscal_year,
+        "from_date": filters.period_start_date,
+        "to_date": filters.period_end_date,
+        "show_zero_values": 1,
+        "show_net_values": 1,
+    })
+
+    columns, rows = trial_balance.execute(tb_filters)
+
+    frappe.log_error(
+        title="TB DEBUG ROW COUNT",
+        message=f"Rows returned: {len(rows) if rows else 0}"
+    )
+
+    total_difference = 0
+
+    for label in labels:
+        found = False
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+
+            account_label = row.get("account_name", "")
+
+            # LABEL MATCH (case-insensitive)
+            if label.lower() in account_label.lower():
+                opening_cr = flt(row.get("opening_credit", 0))
+                closing_cr = flt(row.get("closing_credit", 0))
+
+                difference = (closing_cr - opening_cr)
+                total_difference += difference
+                found = True
+
+                frappe.log_error(
+                    title=f"TB WITHHOLDING TAX MATCH FOUND: {label}",
+                    message=f"{account_label} => Opening Cr = {opening_cr}, Closing Cr = {closing_cr}, Difference = {difference}"
+                )
+                break  # stop searching for this label
+
+        if not found:
+            frappe.log_error(
+                title=f"TB WITHHOLDING TAX NOT FOUND: {label}",
+                message=f"{label} not found in Trial Balance"
+            )
+
+    frappe.log_error(
+        title="TB WITHHOLDING TAX TOTAL",
+        message=f"Total Difference (7.5% + 3%) = {total_difference}"
+    )
+
+    return total_difference
 
 
 
@@ -290,7 +294,7 @@ def execute(filters=None):
                 )
 
             elif row["label"] == _("Loans and Advances (Assets)"):
-                loans_total = get_difference("Loans and Advances (Assets)", filters) or 0
+                loans_total = get_tb_diff_by_label("Loans and Advances (Assets)", filters) or 0
                 row_data = build_cashflow_single_value_row(
                     label="Loans and Advances (Assets)",
                     value=loans_total,
@@ -301,7 +305,7 @@ def execute(filters=None):
                 )
 
             elif row["label"] == _("Prepayment"):
-                prepayment_total = get_difference("PREPAYMENT", filters) or 0
+                prepayment_total = get_tb_diff_by_label("PREPAYMENT", filters) or 0
                 row_data = build_cashflow_single_value_row(
                     label="Prepayment",
                     value=prepayment_total,
@@ -312,7 +316,7 @@ def execute(filters=None):
                 )
 
             elif row["label"] == _("Tax Assets"):
-                tax_assets_total = get_difference("Tax Assets", filters) or 0
+                tax_assets_total = get_tb_diff_by_label("Tax Assets", filters) or 0
                 row_data = build_cashflow_single_value_row(
                     label="Tax Assets",
                     value=tax_assets_total,
@@ -323,7 +327,7 @@ def execute(filters=None):
                 )
 
             elif row["label"] == _("Investment"):
-                investment_total = get_difference("Investment", filters) or 0
+                investment_total = get_tb_diff_by_label("Investment", filters) or 0
                 row_data = build_cashflow_single_value_row(
                     label="Investment",
                     value=investment_total,
@@ -335,28 +339,15 @@ def execute(filters=None):
 
 
             elif row["label"] == _("Withholding Tax"):
-                try:
-                    tax3_total = get_difference("WITHHOLDING TAX 3%", filters) or 0
-                except Exception as e:
-                    frappe.log_error(f"Error fetching WITHHOLDING TAX 3%: {str(e)}")
-                    tax3_total = 0
-                
-                try:
-                    tax7_total = get_difference("WITHHOLDING TAX 7.5%", filters) or 0
-                except Exception as e:
-                    frappe.log_error(f"Error fetching WITHHOLDING TAX 7.5%: {str(e)}")
-                    tax7_total = 0
-                
-                total_withholding_tax = tax3_total + tax7_total
-                
                 row_data = build_cashflow_single_value_row(
                     label="Withholding Tax",
-                    value=total_withholding_tax,
+                    value=get_withholding_tax_total(filters),
                     period_list=period_list,
                     parent_section=cash_flow_sections[0]["section_header"],
                     currency=company_currency,
                     indent=1
                 )
+                
 
 
             # ---------------- DEFAULT (ACCOUNT TYPE BASED) ----------------
