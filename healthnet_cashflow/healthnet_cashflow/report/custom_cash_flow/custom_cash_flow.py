@@ -64,6 +64,7 @@ def get_tb_diff_by_label(label, filters):
         "fiscal_year": filters.from_fiscal_year,
         "from_date": filters.period_start_date,
         "to_date": filters.period_end_date,
+        "cost_center": filters.cost_center or [],
         "show_net_values": 1,
         "with_period_closing_entry_for_opening": 1,
         "with_period_closing_entry_for_current_period": 1,
