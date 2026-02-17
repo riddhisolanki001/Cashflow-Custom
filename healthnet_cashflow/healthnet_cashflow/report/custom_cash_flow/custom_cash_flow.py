@@ -121,6 +121,7 @@ def get_withholding_tax_total(filters):
         "fiscal_year": filters.from_fiscal_year,
         "from_date": filters.period_start_date,
         "to_date": filters.period_end_date,
+        "cost_center": filters.cost_center or [],
         "show_zero_values": 1,
         "show_net_values": 1,
     })
@@ -843,7 +844,6 @@ def get_report_summary(summary_data, currency):
 
 def get_chart_data(columns, data, currency):
     labels = [d.get("label") for d in columns[2:]]
-    print(data)
     datasets = [
         {
             "name": section.get("section").replace("'", ""),
