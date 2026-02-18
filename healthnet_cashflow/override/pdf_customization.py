@@ -33,6 +33,58 @@ def custom_report_to_pdf(html=None, orientation="Landscape", **kwargs):
         })
         return
     
+    # Handle Balance Sheet
+    elif report_name.lower() == "balance sheet":
+        url = get_url()
+        
+        download_url = (
+            f"{url}/api/method/frappe.utils.print_format.download_pdf"
+            f"?doctype=Report&name=Balance%20Sheet&format=Balance%20Sheet"
+            f"&_lang=en"
+        )
+
+        frappe.local.response.update({
+            "type": "redirect",
+            "location": download_url,
+            "filename": f"{report_name}.pdf"
+        })
+        return
+    
+
+    # Handle Custom Cash Flow
+    elif report_name.lower() == "custom cash flow":
+        url = get_url()
+        
+        download_url = (
+            f"{url}/api/method/frappe.utils.print_format.download_pdf"
+            f"?doctype=Report&name=Custom%20Cash%20Flow&format=Custom%20Cash%20Flow"
+            f"&_lang=en"
+        )
+
+        frappe.local.response.update({
+            "type": "redirect",
+            "location": download_url,
+            "filename": f"{report_name}.pdf"
+        })
+        return
+    
+    # Handle profit and loss statement
+    elif report_name.lower() == "profit and loss statement":
+        url = get_url()
+        
+        download_url = (
+            f"{url}/api/method/frappe.utils.print_format.download_pdf"
+            f"?doctype=Report&name=Profit%20and%20Loss%20Statement&format=Profit%20and%20Loss%20Statement"
+            f"&_lang=en"
+        )
+
+        frappe.local.response.update({
+            "type": "redirect",
+            "location": download_url,
+            "filename": f"{report_name}.pdf"
+        })
+        return
+    
 
     # Default handling for other reports
     make_access_log(file_type="PDF", method="PDF", page=html)
