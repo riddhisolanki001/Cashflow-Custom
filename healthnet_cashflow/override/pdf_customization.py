@@ -21,7 +21,7 @@ def custom_report_to_pdf(html=None, orientation="Landscape", **kwargs):
         
         download_url = (
             f"{url}/api/method/frappe.utils.print_format.download_pdf"
-            f"?doctype=Report&name=Trial%20Balance&format=Trial%20Balance"
+            f"?doctype=Report&name=Trial%20Balance&format=Healthnet%20Trial%20Balance"
             f"&orientation=Landscape"
             f"&_lang=en"
         )
@@ -39,7 +39,7 @@ def custom_report_to_pdf(html=None, orientation="Landscape", **kwargs):
         
         download_url = (
             f"{url}/api/method/frappe.utils.print_format.download_pdf"
-            f"?doctype=Report&name=Balance%20Sheet&format=Balance%20Sheet"
+            f"?doctype=Report&name=Balance%20Sheet&format=Healthnet%20Balance%20Sheet"
             f"&_lang=en"
         )
 
@@ -57,7 +57,7 @@ def custom_report_to_pdf(html=None, orientation="Landscape", **kwargs):
         
         download_url = (
             f"{url}/api/method/frappe.utils.print_format.download_pdf"
-            f"?doctype=Report&name=Custom%20Cash%20Flow&format=Custom%20Cash%20Flow"
+            f"?doctype=Report&name=Custom%20Cash%20Flow&format=Healthnet%20Custom%20Cash%20Flow"
             f"&_lang=en"
         )
 
@@ -74,7 +74,7 @@ def custom_report_to_pdf(html=None, orientation="Landscape", **kwargs):
         
         download_url = (
             f"{url}/api/method/frappe.utils.print_format.download_pdf"
-            f"?doctype=Report&name=Profit%20and%20Loss%20Statement&format=Profit%20and%20Loss%20Statement"
+            f"?doctype=Report&name=Profit%20and%20Loss%20Statement&format=Healthnet%20Profit%20and%20Loss%20Statement"
             f"&_lang=en"
         )
 
