@@ -32,6 +32,22 @@ def custom_report_to_pdf(html=None, orientation="Landscape", **kwargs):
             "filename": f"{report_name}.pdf"
         })
         return
+
+    elif report_name.lower() == "general ledger":
+        url = get_url()
+        letterhead = "General Ledger"
+
+        download_url = (
+            f"{url}/api/method/frappe.utils.print_format.download_pdf"
+            f"?doctype=Report&name=General%20Ledger&format=Healthnet%20General%20Ledger"
+        )
+
+        frappe.local.response.update({
+            "type": "redirect",
+            "location": download_url,
+            "filename": f"{report_name}.pdf"
+        })
+        return
     
     # Handle Balance Sheet
     elif report_name.lower() == "balance sheet":
