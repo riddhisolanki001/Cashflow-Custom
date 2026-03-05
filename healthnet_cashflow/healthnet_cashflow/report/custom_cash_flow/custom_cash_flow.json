@@ -16,7 +16,7 @@
  "module": "HealthNet Cashflow",
  "name": "Custom Cash Flow",
  "owner": "Administrator",
- "prepared_report": 0,
+ "prepared_report": 1,
  "ref_doctype": "GL Entry",
  "report_name": "Custom Cash Flow",
  "report_type": "Script Report",
