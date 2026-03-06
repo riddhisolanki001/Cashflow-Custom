@@ -188,7 +188,7 @@
   "margin_left": 15.0,
   "margin_right": 15.0,
   "margin_top": 15.0,
-  "modified": "2026-03-06 11:36:47.908839",
+  "modified": "2026-03-06 12:38:29.470132",
   "module": "HealthNet Cashflow",
   "name": "Healthnet General Ledger",
   "page_number": "Hide",
@@ -201,6 +201,6 @@
   "raw_printing": 0,
   "report": "General Ledger",
   "show_section_headings": 0,
-  "standard": "No"
+  "standard": "Yes"
  }
 ]
