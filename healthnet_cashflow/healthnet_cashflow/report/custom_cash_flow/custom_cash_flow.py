@@ -69,6 +69,8 @@ def get_tb_diff_by_label(label, filters):
         "with_period_closing_entry_for_opening": 1,
         "with_period_closing_entry_for_current_period": 1,
         "include_default_book_entries": 1,
+        'project': [],
+        'show_group_accounts': 1,
     })
 
     columns, rows = trial_balance.execute(tb_filters)
