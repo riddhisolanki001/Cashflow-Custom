@@ -303,7 +303,7 @@ def execute(filters=None):
                     "Accounts Payable", period_list, filters
                 )
 
-            elif row["label"] == _("Loans and Advances (Assets)"):
+            elif row["label"] == _("Loans and Advances (Assets) "):
                 loans_total = get_tb_diff_by_label("Loans and Advances (Assets)", filters) or 0
                 row_data = build_cashflow_single_value_row(
                     label="Loans and Advances (Assets)",
@@ -940,64 +940,65 @@ def get_interest_expense_from_pl(period_list, filters):
 
 def get_working_capital_change_from_tb(account_name, period_list, filters):
 
-    tb_filters = {
+    from erpnext.accounts.report.trial_balance import trial_balance
+
+    tb_filters = frappe._dict({
         "company": filters.company,
-        "from_date": filters.period_start_date,
-        "to_date": filters.period_end_date,
-        "fiscal_year": filters.from_fiscal_year,
-        "cost_center": filters.cost_center or [],
-        "project": filters.project or [],
+        "fiscal_year": filters.get("from_fiscal_year"),
+        "from_date": str(filters.period_start_date),
+        "to_date": str(filters.period_end_date),
+        "cost_center": filters.get("cost_center") or [],
+        "project": filters.get("project") or [],
         "include_default_book_entries": 1,
-        "show_net_values": 1,
+        "show_net_values": 0,
+        "show_zero_values": 1,
+        "show_group_accounts": 1,
         "with_period_closing_entry_for_opening": 1,
         "with_period_closing_entry_for_current_period": 1,
-    }
-
-    tb_filters.update({
-        "filter_based_on": filters.filter_based_on,
-        "from_fiscal_year": filters.get("from_fiscal_year"),
-        "to_fiscal_year": filters.get("to_fiscal_year"),
-        "period_start_date": filters.get("period_start_date"),
-        "period_end_date": filters.get("period_end_date"),
     })
 
-    tb_result = get_trial_balance_report(tb_filters)
-    rows = tb_result.get("result", [])
+    columns, rows = trial_balance.execute(tb_filters)
 
-    data = {}
-    total = 0
+    data = {p["key"]: 0 for p in period_list}
+
+    matched_row = None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if (row.get("account_name") or "").strip() == account_name and row.get("is_group_account") == 1:
+            matched_row = row
+            break
+
+    if not matched_row:
+        frappe.log_error(f"WC NOT FOUND [{account_name}]", "")
+        data["total"] = 0
+        return data
+
+    if account_name in ["Accounts Receivable", "INVENTORY"]:
+        # Net opening and closing (debit - credit) for asset accounts
+        net_opening = flt(matched_row.get("opening_debit", 0)) - flt(matched_row.get("opening_credit", 0))
+        net_closing  = flt(matched_row.get("closing_debit", 0)) - flt(matched_row.get("closing_credit", 0))
+        value = net_opening - net_closing
+
+    elif account_name == "Accounts Payable":
+        # Net opening and closing (credit - debit) for liability accounts
+        net_opening = flt(matched_row.get("opening_credit", 0)) - flt(matched_row.get("opening_debit", 0))
+        net_closing  = flt(matched_row.get("closing_credit", 0)) - flt(matched_row.get("closing_debit", 0))
+        value = net_closing - net_opening
+
+    else:
+        value = 0.0
+
+    frappe.log_error(
+        f"WC FINAL [{account_name}]",
+        f"net_opening={net_opening} | net_closing={net_closing} | value={value}"
+    )
 
     for period in period_list:
-        data[period["key"]] = 0
+        data[period["key"]] = value
 
-    for row in rows:
-        if row.get("account_name") != account_name:
-            continue
-
-        opening = 0
-        closing = 0
-
-        # ASSETS → debit
-        if account_name in ["Accounts Receivable", "INVENTORY"]:
-            opening = row.get("opening_debit", 0)
-            closing = row.get("closing_debit", 0)
-            value = opening - closing
-
-        # # LIABILITIES → credit
-        elif account_name == "Accounts Payable":
-            opening = row.get("opening_credit", 0)
-            closing = row.get("closing_credit", 0)
-            value = (opening - closing) * -1
-
-        for period in period_list:
-            key = period["key"]
-            data[key] = value
-            total += value
-
-    data["total"] = total
+    data["total"] = value
     return data
-
-
 def validate_and_prepare_filters(filters):
     if not filters.filter_based_on:
         frappe.throw(_("Please select Filter Based On"))
