@@ -504,7 +504,6 @@ def execute(filters=None):
     net_cash_row["total"] = sum(net_cash_row.get(p["key"], 0) for p in period_list)
 
     data.append(net_cash_row)
-    data.append({})
 
     opening_row = get_cash_and_bank_balance(period_list, filters, "opening")
     opening_row.update({
@@ -513,34 +512,17 @@ def execute(filters=None):
         "currency": company_currency,
     })
     data.append(opening_row)
-    data.append({})
 
     # --------------------------------
     # Closing Cash and Bank Balance
     # --------------------------------
-    closing_row = {
-    "section_name": "'Closing Cash and Bank Balance'",
-    "section": "'Closing Cash and Bank Balance'",
-    "currency": company_currency,
-    }
-
-    total = 0
-
-    for period in period_list:
-        key = period["key"]
-
-        opening = opening_row.get(key, 0)
-        net_change = net_cash_row.get(key, 0)
-
-        value = opening + net_change
-        closing_row[key] = value
-        total += value
-
-    closing_row["total"] = total
-
+    closing_row = get_cash_and_bank_balance(period_list, filters, "closing")
+    closing_row.update({
+        "section_name": "'Closing Cash and Bank Balance'",
+        "section": "'Closing Cash and Bank Balance'",
+        "currency": company_currency,
+        })
     data.append(closing_row)
-    data.append({})
-
     
     columns = get_columns(
         filters.periodicity,
@@ -866,23 +848,12 @@ def get_chart_data(columns, data, currency):
 
 
 def get_interest_expense_from_pl(period_list, filters):
-    pl_filters = {
-        "company": filters.company,
-        "filter_based_on": "Fiscal Year",
-        "period_start_date": filters.period_start_date,
-        "period_end_date": filters.period_end_date,
-        "from_fiscal_year": filters.from_fiscal_year,
-        "to_fiscal_year": filters.to_fiscal_year,
-        "periodicity": filters.periodicity,
-        "cost_center": filters.cost_center or [],
-        "project": filters.project or [],
-        "include_default_book_entries": 1,
-        "accumulated_values": 1
-    }
-
-    pl_result = get_profit_and_loss_report(pl_filters)
-
-    rows = pl_result.get("result", [])
+    """
+    Fetch Interest Expense directly from GL Entry
+    by matching accounts under FINANCE COST parent
+    that have INTEREST in their name.
+    This avoids P&L API column key mismatch issues.
+    """
 
     interest_data = {}
     total = 0
@@ -890,16 +861,79 @@ def get_interest_expense_from_pl(period_list, filters):
     for period in period_list:
         interest_data[period["key"]] = 0
 
-    for row in rows:
-        parent = (row.get("parent_account") or "").upper()
-        name = (row.get("account_name") or "").upper()
+    # Step 1: Get all accounts under FINANCE COST that contain INTEREST
+    interest_accounts = frappe.db.sql("""
+        SELECT name FROM `tabAccount`
+        WHERE company = %(company)s
+          AND UPPER(name) LIKE %(interest)s
+          AND (
+              UPPER(parent_account) LIKE %(finance_cost)s
+              OR UPPER(name) LIKE %(finance_cost)s
+          )
+          AND is_group = 0
+    """, {
+        "company": filters.company,
+        "interest": "%INTEREST%",
+        "finance_cost": "%FINANCE COST%",
+    }, as_dict=True)
 
-        if "FINANCE COST" in parent and "INTEREST" in name:
-            for period in period_list:
-                key = period["key"]
-                value = row.get(key, 0) or 0
-                interest_data[key] += value
-                total += value
+    # Fallback: if no parent match, just search by name containing INTEREST ON LOANS
+    if not interest_accounts:
+        interest_accounts = frappe.db.sql("""
+            SELECT name FROM `tabAccount`
+            WHERE company = %(company)s
+              AND UPPER(name) LIKE %(interest)s
+              AND is_group = 0
+        """, {
+            "company": filters.company,
+            "interest": "%INTEREST ON LOANS%",
+        }, as_dict=True)
+
+    if not interest_accounts:
+        frappe.log_error(
+            title="INTEREST ACCOUNTS NOT FOUND",
+            message=f"No interest accounts found for company: {filters.company}"
+        )
+        interest_data["total"] = 0
+        return interest_data
+
+    account_names = [a["name"] for a in interest_accounts]
+
+    frappe.log_error(
+        title="INTEREST ACCOUNTS FOUND",
+        message=f"Accounts: {account_names}"
+    )
+
+    # Step 2: Query GL Entry for each period
+    for period in period_list:
+        start_date = filters.period_start_date
+        end_date = period["to_date"]
+
+        amount = frappe.db.sql("""
+            SELECT SUM(debit) - SUM(credit)
+            FROM `tabGL Entry`
+            WHERE company = %(company)s
+              AND posting_date >= %(start_date)s
+              AND posting_date <= %(end_date)s
+              AND account IN %(accounts)s
+              AND voucher_type != 'Period Closing Voucher'
+              AND is_cancelled = 0
+        """, {
+            "company": filters.company,
+            "start_date": start_date,
+            "end_date": end_date,
+            "accounts": tuple(account_names),
+        })
+
+        value = flt(amount[0][0]) if amount and amount[0][0] else 0
+
+        frappe.log_error(
+            title="INTEREST GL VALUE",
+            message=f"Period: {period['key']} | start: {start_date} | end: {end_date} | value: {value}"
+        )
+
+        interest_data[period["key"]] = value
+        total += value
 
     interest_data["total"] = total
     return interest_data
@@ -1020,31 +1054,45 @@ def validate_and_prepare_filters(filters):
 
 
 def get_cash_and_bank_balance(period_list, filters, balance_type):
-    """
-    balance_type: 'opening' or 'closing'
-    """    
+
     tb_filters = {
         "company": filters.company,
-        "from_date": filters.period_start_date,
-        "to_date": filters.period_end_date,
-        "fiscal_year": filters.from_fiscal_year,
-        "cost_center": filters.cost_center or [],
-        "project": filters.project or [],
+        "filter_based_on": filters.filter_based_on,
+        "from_fiscal_year": filters.get("from_fiscal_year"),
+        "to_fiscal_year": filters.get("to_fiscal_year"),
+        "period_start_date": filters.get("period_start_date"),
+        "period_end_date": filters.get("period_end_date"),
+        "cost_center": filters.get("cost_center") or [],
+        "project": filters.get("project") or [],
         "include_default_book_entries": 1,
         "show_net_values": 1,
         "with_period_closing_entry_for_opening": 1,
         "with_period_closing_entry_for_current_period": 1,
     }
 
-    tb_filters.update({
-        "filter_based_on": filters.filter_based_on,
-        "from_fiscal_year": filters.get("from_fiscal_year"),
-        "to_fiscal_year": filters.get("to_fiscal_year"),
-        "period_start_date": filters.get("period_start_date"),
-        "period_end_date": filters.get("period_end_date"),
-    })
     tb_result = get_trial_balance_report(tb_filters)
     rows = tb_result.get("result", [])
+
+    frappe.log_error(
+        title=f"CASH TB [{balance_type.upper()}] ROW COUNT",
+        message=f"Total rows: {len(rows)}"
+    )
+
+    # Get all Bank and Cash account names for this company
+    cash_bank_accounts = frappe.db.sql("""
+        SELECT name, account_name FROM `tabAccount`
+        WHERE company = %(company)s
+          AND account_type IN ('Bank', 'Cash')
+          AND is_group = 0
+    """, {"company": filters.company}, as_dict=True)
+
+    cash_bank_names = {a["name"] for a in cash_bank_accounts}
+    cash_bank_account_names = {a["account_name"] for a in cash_bank_accounts}
+
+    frappe.log_error(
+        title=f"CASH BANK ACCOUNT NAMES [{balance_type.upper()}]",
+        message=f"names={cash_bank_names} | account_names={cash_bank_account_names}"
+    )
 
     data = {}
     total = 0
@@ -1053,22 +1101,37 @@ def get_cash_and_bank_balance(period_list, filters, balance_type):
         data[period["key"]] = 0
 
     for row in rows:
-        if row.get("account_name") not in ("Bank Accounts", "Cash In Hand"):
+        if not isinstance(row, dict):
+            continue
+
+        # Match by account (full name with suffix) OR account_name
+        row_account = (row.get("account") or "").strip()
+        row_account_name = (row.get("account_name") or "").strip()
+
+        if row_account not in cash_bank_names and row_account_name not in cash_bank_account_names:
             continue
 
         if balance_type == "opening":
-            value = row.get("opening_debit", 0)
-
+            value = flt(row.get("opening_debit", 0)) - flt(row.get("opening_credit", 0))
         else:
-            value = row.get("closing_credit", 0)
+            value = flt(row.get("closing_debit", 0)) - flt(row.get("closing_credit", 0))
+
+        frappe.log_error(
+            title=f"CASH ROW MATCHED [{balance_type.upper()}]",
+            message=f"account={row_account} | account_name={row_account_name} | value={value} | row={row}"
+        )
 
         for period in period_list:
             data[period["key"]] += value
             total += value
-            
+
+    frappe.log_error(
+        title=f"CASH BALANCE TOTAL [{balance_type.upper()}]",
+        message=f"Total: {total}"
+    )
+
     data["total"] = total
     return data
-
 
 def get_ppe_movement_from_tb(period_list, filters, movement_type):
     """
