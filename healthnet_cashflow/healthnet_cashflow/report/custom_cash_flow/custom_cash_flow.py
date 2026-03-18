@@ -303,7 +303,7 @@ def execute(filters=None):
                     "Accounts Payable", period_list, filters
                 )
 
-            elif row["label"] == _("Loans and Advances (Assets) "):
+            elif row["label"] == _("Loans and Advances (Assets)"):
                 loans_total = get_tb_diff_by_label("Loans and Advances (Assets)", filters) or 0
                 row_data = build_cashflow_single_value_row(
                     label="Loans and Advances (Assets)",
