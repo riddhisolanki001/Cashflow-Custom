@@ -999,6 +999,8 @@ def get_working_capital_change_from_tb(account_name, period_list, filters):
 
     data["total"] = value
     return data
+
+
 def validate_and_prepare_filters(filters):
     if not filters.filter_based_on:
         frappe.throw(_("Please select Filter Based On"))
