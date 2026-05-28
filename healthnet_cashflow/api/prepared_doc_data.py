@@ -59,6 +59,7 @@ def get_general_ledger_prepared_data():
             with open(file_path, "r") as f:
                 content = json.load(f)
 
+
         data = content.get("result", []) or content.get("data", [])
 
         # Safely extract required boundary values
