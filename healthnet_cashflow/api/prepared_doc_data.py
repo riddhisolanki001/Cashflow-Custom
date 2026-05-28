@@ -128,3 +128,12 @@ def get_general_ledger_prepared_data():
     
     except Exception as e:
         frappe.log_error("get_general_ledger_prepared_data",frappe.get_traceback())    
+
+        return {
+            "success": False,
+            "message": str(e),
+            "applied_filters": {},
+            "data": [],
+            "balance_details": {},
+        }
+
