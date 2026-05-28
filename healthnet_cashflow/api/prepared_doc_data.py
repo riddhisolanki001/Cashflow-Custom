@@ -1,5 +1,5 @@
+import frappe, re
 
-import frappe,re
 
 @frappe.whitelist()
 def get_general_ledger_prepared_data():
@@ -18,14 +18,16 @@ def get_general_ledger_prepared_data():
         pr = frappe.get_all(
             "Prepared Report",
             filters={"report_name": "General Ledger"},
-            fields=["name", "filters"], 
-            
+            fields=["name", "filters"],
             order_by="creation desc",
-            limit=1
+            limit=1,
         )
 
         if not pr:
-            return {"success": False, "message": "No Prepared Report found for General Ledger"}
+            return {
+                "success": False,
+                "message": "No Prepared Report found for General Ledger",
+            }
 
         pr = pr[0]
         prepared_report_name = pr.name
@@ -38,15 +40,18 @@ def get_general_ledger_prepared_data():
             "File",
             filters={
                 "attached_to_doctype": "Prepared Report",
-                "attached_to_name": prepared_report_name
+                "attached_to_name": prepared_report_name,
             },
             fields=["file_url"],
             order_by="creation desc",
-            limit=1
+            limit=1,
         )
 
         if not file_doc:
-            return {"success": False, "message": "No report file found (maybe still generating?)"}
+            return {
+                "success": False,
+                "message": "No report file found (maybe still generating?)",
+            }
 
         file_path = get_file_path(file_doc[0].file_url)
 
@@ -59,22 +64,22 @@ def get_general_ledger_prepared_data():
             with open(file_path, "r") as f:
                 content = json.load(f)
 
-
         data = content.get("result", []) or content.get("data", [])
 
-        # Safely extract required boundary values
+        # IMPORTANT: Extract balance rows BEFORE modifying data
         first_row = data[0] if len(data) > 0 else None
-        last_row = data[-1] if len(data) > 0 else None
-        second_last_row = data[-2] if len(data) > 1 else None
-        
-        cleaned_data = data.copy()  
+        total_row = data[-2] if len(data) > 1 else None
+        closing_row = data[-1] if len(data) > 0 else None
+
+        # Now clean the data
+        cleaned_data = data.copy()
         if len(cleaned_data) > 0:
-            cleaned_data.pop(0)  
+            cleaned_data.pop(0)  # Remove first row (opening)
         if len(cleaned_data) > 0:
-            cleaned_data.pop(-1)  
+            cleaned_data.pop(-1)  # Remove last row (closing)
         if len(cleaned_data) > 1:
-            cleaned_data.pop(-1) 
-            
+            cleaned_data.pop(-1)  # Remove second-to-last row (total)
+
         # Step 4: Add cheque_no & special Withholding Tax handling
         payment_cache = {}
         withholding_cache = {}
@@ -85,12 +90,12 @@ def get_general_ledger_prepared_data():
                 account_name = (row.get("account") or "").lower()
                 against_account = (row.get("against") or "").lower()
 
-                if row.get("party_type") == "Supplier" and ("withholding" in account_name or "withholding" in against_account):
+                if row.get("party_type") == "Supplier" and (
+                    "withholding" in account_name or "withholding" in against_account
+                ):
                     if pe_name not in withholding_cache:
                         tax_category = frappe.db.get_value(
-                            "Payment Entry",
-                            pe_name,
-                            "tax_withholding_category"
+                            "Payment Entry", pe_name, "tax_withholding_category"
                         )
                         withholding_cache[pe_name] = tax_category
 
@@ -107,13 +112,10 @@ def get_general_ledger_prepared_data():
                 else:
                     if pe_name not in payment_cache:
                         payment_cache[pe_name] = frappe.db.get_value(
-                            "Payment Entry",
-                            pe_name,
-                            "reference_no"
+                            "Payment Entry", pe_name, "reference_no"
                         )
 
                     row["cheque_no"] = payment_cache.get(pe_name)
-        
 
         return {
             "success": True,
@@ -122,13 +124,13 @@ def get_general_ledger_prepared_data():
             "data": cleaned_data,
             "balance_details": {
                 "opening": first_row,
-                "total": second_last_row,
-                "closing": last_row
-            }
+                "total": total_row,
+                "closing": closing_row,
+            },
         }
-    
+
     except Exception as e:
-        frappe.log_error("get_general_ledger_prepared_data",frappe.get_traceback())    
+        frappe.log_error("get_general_ledger_prepared_data", frappe.get_traceback())
 
         return {
             "success": False,
@@ -137,4 +139,3 @@ def get_general_ledger_prepared_data():
             "data": [],
             "balance_details": {},
         }
-
