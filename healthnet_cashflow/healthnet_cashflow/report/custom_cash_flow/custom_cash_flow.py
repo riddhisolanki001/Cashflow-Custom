@@ -281,11 +281,13 @@ def execute(filters=None):
 
             elif row["label"] == _("Interest Paid"):
                 row_data = get_interest_expense_from_pl(period_list, filters)
-                
-            # ---------------- STATIC ZERO ----------------
-            elif row["label"] == _("Borrowings/Equity Movements"):
-                row_data = {p["key"]: 0 for p in period_list}
-                row_data["total"] = 0    
+                for k in list(row_data.keys()):
+                    row_data[k] = -flt(row_data[k])
+
+            elif row["label"] == _("Changes in Surplus for the Year"):
+                row_data = get_working_capital_change_from_tb(
+                    "Equity", period_list, filters
+                )
 
             # ---------------- WORKING CAPITAL ----------------
             elif row["label"] == _("Change in Trade Receivables"):
@@ -357,8 +359,11 @@ def execute(filters=None):
                     currency=company_currency,
                     indent=1
                 )
-                
 
+            elif row["label"] == _("Loans (Liabilities)"):
+                row_data = get_working_capital_change_from_tb(
+                    "Loans (Liabilities)", period_list, filters
+                )
 
             # ---------------- DEFAULT (ACCOUNT TYPE BASED) ----------------
             else:
@@ -396,10 +401,11 @@ def execute(filters=None):
                         _("Tax Assets"),
                         _("Investment"),
                         _("Withholding Tax"),
+                        _("Loans (Liabilities)"),
                     ),
                     "include_in_net_cash": row["label"] in (
                         _("Interest Paid"),
-                        _("Borrowings/Equity Movements"),
+                        _("Changes in Surplus for the Year"),
                     ),
                 }
             )
@@ -557,6 +563,7 @@ def get_cash_flow_accounts():
             {"account_type": "Other", "label": _("Tax Assets")},
             {"account_type": "Other", "label": _("Investment")},
             {"account_type": "Other", "label": _("Withholding Tax")},
+            {"account_type": "Other", "label": _("Loans (Liabilities)")},
         ],
     }
 
@@ -577,7 +584,7 @@ def get_cash_flow_accounts():
         "section_header": _("Cash Flow from Financing Activities"),
         "account_types": [
               {"account_type": "Equity", "label": _("Interest Paid")},
-            {"account_type": "Equity", "label": _("Borrowings/Equity Movements")},
+            {"account_type": "Equity", "label": _("Changes in Surplus for the Year")},
          ],
     }
 
@@ -980,8 +987,8 @@ def get_working_capital_change_from_tb(account_name, period_list, filters):
         net_closing  = flt(matched_row.get("closing_debit", 0)) - flt(matched_row.get("closing_credit", 0))
         value = net_opening - net_closing
 
-    elif account_name == "Accounts Payable":
-        # Net opening and closing (credit - debit) for liability accounts
+    elif account_name in ["Accounts Payable", "Loans (Liabilities)", "Equity"]:
+        # Net opening and closing (credit - debit) for liability/equity accounts
         net_opening = flt(matched_row.get("opening_credit", 0)) - flt(matched_row.get("opening_debit", 0))
         net_closing  = flt(matched_row.get("closing_credit", 0)) - flt(matched_row.get("closing_debit", 0))
         value = net_closing - net_opening
